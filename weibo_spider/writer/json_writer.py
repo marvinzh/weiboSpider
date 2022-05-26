@@ -1,3 +1,9 @@
+'''
+Author: bairongz
+Date: 2022-05-26 09:25:59
+LastEditTime: 2022-05-26 21:22:32
+Description: 
+'''
 import codecs
 import json
 import logging
@@ -46,6 +52,7 @@ class JsonWriter(Writer):
         if os.path.isfile(self.file_path):
             with codecs.open(self.file_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
+        
         data = self._update_json_data(data, [w.__dict__ for w in weibos])
         with codecs.open(self.file_path, 'w', encoding='utf-8') as f:
             f.write(json.dumps(data, indent=4, ensure_ascii=False))

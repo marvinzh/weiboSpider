@@ -1,3 +1,9 @@
+'''
+Author: bairongz
+Date: 2022-05-26 09:25:59
+LastEditTime: 2022-05-26 14:11:13
+Description: 
+'''
 class Weibo:
     def __init__(self):
         self.id = ''
@@ -18,6 +24,7 @@ class Weibo:
         self.up_num = 0
         self.retweet_num = 0
         self.comment_num = 0
+        self.comments = []
 
     def __str__(self):
         """打印一条微博"""

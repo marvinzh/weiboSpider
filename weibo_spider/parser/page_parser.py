@@ -1,7 +1,11 @@
+from audioop import reverse
 import logging
 import re
 import sys
 from datetime import datetime, timedelta
+from turtle import update
+
+from pandas import DatetimeIndex
 
 from .. import datetime_util
 from ..weibo import Weibo
@@ -9,6 +13,9 @@ from .comment_parser import CommentParser
 from .mblog_picAll_parser import MblogPicAllParser
 from .parser import Parser
 from .util import handle_garbled, handle_html, to_video_download_url
+from weibo_spider import weibo
+from lxml import html
+from datetime import datetime
 
 logger = logging.getLogger('spider.page_parser')
 
@@ -25,7 +32,7 @@ class PageParser(Parser):
         self.since_date = user_config['since_date']
         self.end_date = user_config['end_date']
         self.page = page
-        self.url = 'https://weibo.cn/%s?page=%d' % (self.user_uri, page)
+        self.url = 'https://weibo.cn/%s?filter=1&page=%d' % (self.user_uri, page)
         if self.end_date != 'now':
             since_date = self.since_date.split(' ')[0].split('-')
             end_date = self.end_date.split(' ')[0].split('-')
@@ -81,6 +88,8 @@ class PageParser(Parser):
                         logger.info('-' * 100)
                         weibos.append(weibo)
                         weibo_id_list.append(weibo.id)
+
+            print(weibos)
             return weibos, weibo_id_list, self.to_continue
         except Exception as e:
             logger.exception(e)
@@ -317,6 +326,7 @@ class PageParser(Parser):
             weibo.original = is_original  # 是否原创微博
             if (not self.filter) or is_original:
                 weibo.id = info.xpath('@id')[0][2:]
+                weibo.comments = self.get_weibo_comments(weibo.id)
                 weibo.content = self.get_weibo_content(info,
                                                        is_original)  # 微博内容
                 weibo.article_url = self.get_article_url(info)  # 头条文章url
@@ -324,8 +334,7 @@ class PageParser(Parser):
                 weibo.original_pictures = picture_urls[
                     'original_pictures']  # 原创图片url
                 if not self.filter:
-                    weibo.retweet_pictures = picture_urls[
-                        'retweet_pictures']  # 转发图片url
+                    weibo.retweet_pictures = picture_urls['retweet_pictures']  # 转发图片url
                 weibo.video_url = self.get_video_url(info)  # 微博视频url
                 weibo.publish_place = self.get_publish_place(info)  # 微博发布位置
                 weibo.publish_time = self.get_publish_time(info)  # 微博发布时间
@@ -338,6 +347,85 @@ class PageParser(Parser):
                 weibo = None
                 logger.info(u'正在过滤转发微博')
             return weibo
+        except Exception as e:
+            logger.exception(e)
+
+    def get_weibo_comments(self, weibo_id):
+        def _parse_user(comment):
+            username = comment.xpath("a")
+            if not username:
+                return {}
+            username = username[0].text
+            return {
+                "user": username
+            }
+
+        def _parse_comment(comment):
+            content = comment.xpath("span[@class='ctt']")
+            if not content:
+                comment = ""
+            else:
+                comment = content[0].xpath("./text()")
+            
+            return {
+                "comment": " ".join(comment)
+            }
+
+        def _parse_upvotes(comment):
+            content = comment.xpath("span[@class='cc']/a")
+            if not content:
+                upvotes = -1
+            else:
+                upvotes = re.findall("赞\[([0-9]*)\]", content[0].text)
+                if upvotes:
+                    upvotes = int(upvotes[0])
+
+            return {
+                "upvotes": upvotes
+            }               
+
+        def _parse_date_and_location(comment):
+            content = comment.xpath("span[@class='ct']")
+            if not content:
+                return {}
+            date_raw, location = content[0].text.split("\xa0")
+            year = str(datetime.today().year)
+            attempt = re.findall("([0-9]*)月([0-9]*)日", date_raw)
+            if attempt:
+                date = "%s-%s-%s "%(year, *attempt[0]) + date_raw.split()[-1]
+            else:
+                date = date_raw
+            return {
+                "date_raw":date_raw.strip(),
+                "date": date,
+                "location":location.replace("来自","").strip()
+            }
+
+        try:
+            url = "https://weibo.cn/comment/%s?uid=%s"%(weibo_id, self.user_uri)
+            selector = handle_html(self.cookie, url)
+            comments = selector.xpath("//div[@class='c']")
+            parsed_comments = []
+            seen = set()
+            for comment in comments:
+                # 暂时不处理@了其他用户的评论
+                if comment.xpath("span[@class='ctt']/a"):
+                    continue
+                
+                parsed_comment = {"type":"comment"}
+                parsed_comment.update(_parse_user(comment))
+                parsed_comment.update(_parse_comment(comment))
+                parsed_comment.update(_parse_upvotes(comment))
+                parsed_comment.update(_parse_date_and_location(comment))
+                
+                key = "%s:%s"%(parsed_comment.get("user"), parsed_comment.get("comment"))
+                if parsed_comment.get("comment") and key not in seen:
+                    parsed_comments.append(parsed_comment)
+                    seen.add(key)
+
+            parsed_comments.sort(key=lambda x:x.get("upvotes", -1), reverse=True)
+            return parsed_comments
+
         except Exception as e:
             logger.exception(e)
 
