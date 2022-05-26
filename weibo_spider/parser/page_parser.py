@@ -89,7 +89,6 @@ class PageParser(Parser):
                         weibos.append(weibo)
                         weibo_id_list.append(weibo.id)
 
-            print(weibos)
             return weibos, weibo_id_list, self.to_continue
         except Exception as e:
             logger.exception(e)
